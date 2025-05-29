@@ -1,96 +1,46 @@
-"""Voice Agent for speech-to-text and text-to-speech conversion"""
-from typing import Dict, Any, Optional
-from datetime import datetime
-import os
-from dotenv import load_dotenv
+import streamlit as st
+from gtts import gTTS
 import openai
-import base64
+import os
 import tempfile
+import time
 
-load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-class VoiceAgent:
-    def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        openai.api_key = self.api_key
+def transcribe_audio(file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
+        tmp_file.write(file.read())
+        tmp_path = tmp_file.name
 
-    async def speech_to_text(self, audio_data: bytes) -> str:
-        """Convert speech to text using OpenAI's API"""
-        try:
-            # Save audio data to a temporary file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-                temp_file.write(audio_data)
-                temp_file_path = temp_file.name
+    with open(tmp_path, "rb") as audio_file:
+        transcript = openai.Audio.transcribe("whisper-1", audio_file)
 
-            # Transcribe using OpenAI's API
-            with open(temp_file_path, "rb") as audio_file:
-                transcript = openai.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="text"
-                )
+    os.remove(tmp_path)
+    return transcript['text']
 
-            # Clean up temporary file
-            os.unlink(temp_file_path)
-            
-            return transcript
-            
-        except Exception as e:
-            print(f"Error in speech to text conversion: {str(e)}")
-            return "Could not transcribe audio. Please try again."
+def speak(text):
+    tts = gTTS(text)
+    output_path = "output.mp3"
+    tts.save(output_path)
+    return output_path
 
-    async def text_to_speech(self, text: str) -> Dict[str, Any]:
-        """Convert text to speech using OpenAI's API"""
-        try:
-            # Ensure text is not empty and within limits
-            if not text or len(text) > 4096:
-                raise ValueError("Text must be between 1 and 4096 characters")
+def voice_agent_ui():
+    st.header("🎤 Voice Agent: Ask Your Market Brief")
 
-            # Generate speech with enhanced quality settings
-            response = openai.audio.speech.create(
-                model="tts-1",
-                voice="nova",  # Using nova voice for better clarity
-                input=text,
-                speed=0.9,  # Slightly slower for better clarity
-                response_format="mp3"  # Using mp3 for better quality/size ratio
-            )
-            
-            if not response or not response.content:
-                raise ValueError("No audio data received from API")
+    audio_file = st.file_uploader("Upload a question (MP3 or WAV)", type=["mp3", "wav"])
 
-            # Get the speech audio in bytes and encode as base64
-            audio_data = response.content
-            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-            
-            return {
-                "audio_data": audio_base64,
-                "format": "audio/mp3",  # Updated format to match response_format
-                "encoding": "base64",
-                "content_length": len(audio_data)
-            }
-            
-        except Exception as e:
-            print(f"Error in text to speech conversion: {str(e)}")
-            return {
-                "error": str(e),
-                "audio_data": None,
-                "format": None,
-                "encoding": None
-            }
+    if audio_file is not None:
+        with st.spinner("Transcribing..."):
+            question = transcribe_audio(audio_file)
+            st.success("Transcription complete!")
+            st.write(f"🗣️ You asked: `{question}`")
 
-    async def health_check(self) -> Dict[str, Any]:
-        """Check if the voice service is working"""
-        try:
-            # Test text-to-speech with a short message
-            test_response = await self.text_to_speech("Test message")
-            
-            return {
-                "healthy": test_response.get("audio_data") is not None,
-                "timestamp": datetime.now().isoformat()
-            }
-        except Exception as e:
-            return {
-                "healthy": False,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            } 
+            # Here you can pass the `question` to your orchestrator or LLM pipeline
+            # For demo purposes, let's mock a response:
+            response = f"Mocked response to: {question}"
+
+            st.write(f"💬 Assistant says: {response}")
+
+            audio_path = speak(response)
+            audio_bytes = open(audio_path, 'rb').read()
+            st.audio(audio_bytes, format='audio/mp3')
