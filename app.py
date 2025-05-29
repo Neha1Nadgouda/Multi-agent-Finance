@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import json
 import sounddevice as sd
-import soundfile as sf
 import numpy as np
 from datetime import datetime
 import pytz
